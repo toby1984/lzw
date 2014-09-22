@@ -62,10 +62,6 @@ public class BitStream
 		int longIndex = 0;
 
 		int bitsRemaining = numberOfBits;
-		System.out.println("Size in bits: "+bitsRemaining);
-		System.out.println("Size in bytes: "+(bitsRemaining/8));
-		System.out.println("Number of longs: "+(bitsRemaining/8)/8);
-		System.out.println("Size in KBs: "+(bitsRemaining/8/1024));
 
 		int toShift = 7*8;
 
@@ -109,7 +105,6 @@ public class BitStream
 			throw new RuntimeException("Internal error,size must be >= 1");
 		}
 		final int sizeInLongs = (int) Math.ceil( sizeInBytes / 8f );
-		System.out.println("Allocating for "+sizeInBytes+" bytes => "+sizeInLongs+" long words");
 		this.buffer = new long[ sizeInLongs ];
 	}
 
@@ -309,6 +304,5 @@ public class BitStream
 		final long[] newBuffer = new long[ buffer.length * 2];
 		System.arraycopy( this.buffer , 0 , newBuffer , 0 , this.buffer.length );
 		buffer = newBuffer;
-		System.out.println("resized buffer to "+buffer.length);
 	}
 }

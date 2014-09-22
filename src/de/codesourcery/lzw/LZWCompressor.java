@@ -76,24 +76,30 @@ public class LZWCompressor implements ICompressor
 
 		final StringBuilder buffer = new StringBuilder();
 		final Random rnd = new Random(0xdeadbeef);
-		for ( int i = 0 ; i < 100 * 1024 ; i++ ) {
-			buffer.append( chars[ rnd.nextInt(chars.length ) ] );
-		}
 
-		testCompression( "LZWLZ78LZ77LZCLZMWLZAP".getBytes() );
-//		testCompression( buffer.toString().getBytes() );
+		for ( int j = 0 ; j < 10 ; j++ )
+		{
+			final int len = rnd.nextInt( 100* 1024 );
+			buffer.setLength( 0 );
+			for ( int i = 0 ; i < len ; i++ ) {
+				buffer.append( chars[ rnd.nextInt(chars.length ) ] );
+			}
+			testCompression( buffer.toString().getBytes() );
+		}
 	}
 
 	private static void testCompression(final byte[] test)
 	{
 		final BitStream out = new BitStream(1024);
 
-		System.out.println("---- compressing ----");
 		final int numberOfCodeWords = new LZWCompressor().compress( test , out );
-		System.out.println("Compressed: "+numberOfCodeWords+" 12-bit words = "+(numberOfCodeWords*12)+" bits (input: "+(test.length*8+" bits)"));
+
+		final float inputBits = test.length*8;
+		final float outputBits = numberOfCodeWords*12;
+		final float ratio = 100.0f - 100.0f* ( outputBits / inputBits );
+		System.out.println("Compressed: "+numberOfCodeWords+" 12-bit words = "+(numberOfCodeWords*12)+" bits (input: "+(test.length*8+" bits), compression: "+ratio+" %"));
 		out.reset();
 
-		System.out.println("---- decompressing ----");
 		final byte[] decompressed = new LZWCompressor().decompress( out , numberOfCodeWords );
 
 		if ( decompressed.length != test.length ) {
@@ -134,7 +140,7 @@ public class LZWCompressor implements ICompressor
 			{
 				if ( tableInsertPtr == table.length ) {
 					initDictionary();
-					tableInsertPtr = 0;
+					tableInsertPtr = 256;
 				}
 				table[tableInsertPtr] = new TableEntry( patternBuffer,patternPtr );
 
@@ -157,14 +163,12 @@ public class LZWCompressor implements ICompressor
 		final int existingIndex = findTableEntry(patternBuffer,patternPtr);
 		if ( existingIndex != -1 ) {
 			out.write( existingIndex , 12 );
-			System.out.println("*** OUTPUT: "+existingIndex+" ("+table[existingIndex]+")" );
 			codeWords++;
 		} else {
 			for ( int i = 0 ; i < patternPtr ; i++ )
 			{
 				int value = patternBuffer[i];
 				value = value & 0xFF;
-				System.out.println("*** OUTPUT: "+value+" ("+((char) value)+")" );
 				out.write( value , 12 );
 			}
 		}
@@ -185,25 +189,11 @@ public class LZWCompressor implements ICompressor
 	@Override
 	public byte[] decompress(BitStream in,int numberOfCodeWords)
 	{
-		final BitStream out = new BitStream( numberOfCodeWords );
+		final BitStream out = new BitStream( 1 + (numberOfCodeWords*12) / 8 );
 
 		if ( numberOfCodeWords == 0 ) {
 			return out.getBytes();
 		}
-
-	/*
-     INITIALISIERE Mustertabelle MIT (<leeres Muster>,Zeichen) FÜR ALLE Zeichen
-     last := lies_ersten_Code()
-     Ausgabe(Muster VON last)
-     SOLANGE NOCH Codes_verfügbar() WIEDERHOLE:
-        next := lies_nächsten_Code()
-        WENN next IN Mustertabelle DANN:
-           FÜGE ( (Muster VON last), erstes_Zeichen_von(Muster VON next)) ZUR Mustertabelle HINZU
-        SONST:
-           FÜGE ( (Muster VON last), erstes_Zeichen_von(Muster VON last)) ZUR Mustertabelle HINZU
-        Ausgabe(Muster VON next)
-        last := next
-	 */
 
 		initDictionary();
 
@@ -220,21 +210,23 @@ public class LZWCompressor implements ICompressor
 			final TableEntry existing = table[ next ];
 			if ( existing != null )
 			{
+				final TableEntry newEntry = table[ last ].newEntry( table[ next ].firstByte() );
+
 				if ( tablePtr == table.length ) {
 					initDictionary();
-					tablePtr = 0;
+					tablePtr = 256;
 				}
-				table[ tablePtr++ ] = table[ last ].newEntry( table[ next ].firstByte() );
+				table[ tablePtr++ ] = newEntry;
 			}
 			else
 			{
+				final TableEntry newEntry = table[ last ].newEntry( table[ last ].firstByte() );
 				if ( tablePtr == table.length ) {
 					initDictionary();
-					tablePtr = 0;
+					tablePtr = 256;
 				}
-				table[ tablePtr++ ] = table[ last ].newEntry( table[ last ].firstByte() );
+				table[ tablePtr++ ] = newEntry;
 			}
-			System.out.println("*** OUTPUT: "+table[ next ]);
 			table[ next ].writePattern( out );
 			last = next;
 		}
