@@ -1,10 +1,15 @@
 package de.codesourcery.lzw;
 
-import java.util.Random;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
 
 
 public class LZWCompressor implements ICompressor
 {
+	protected static final int WARMUP_ROUNDS = 20;
+
 	protected static final int BITS_PER_ENTRY = 12;
 
 	protected static final class TableEntry
@@ -60,33 +65,41 @@ public class LZWCompressor implements ICompressor
 
 	private TableEntry[] table = new TableEntry[ 1 << BITS_PER_ENTRY ];
 
-	private final PrefixTree tree = new PrefixTree();
+	private final PrefixTree tree = new PrefixTree(8192);
 
 	private int findTableEntry(byte[] patternBuffer,int patternPtr)
 	{
 		return tree.lookup( patternBuffer , patternPtr );
 	}
 
-	public static void main(String[] args)
+	public static void main(String[] args) throws IOException
 	{
 		final char[] chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".toCharArray();
 
 		final StringBuilder buffer = new StringBuilder();
-		final Random rnd = new Random(0xdeadbeef);
 
-		// final int len = rnd.nextInt( 100* 1024 );
-		final int len = 1000 * 1024;
-		buffer.setLength( 0 );
-		for ( int i = 0 ; i < len ; i++ ) {
-			buffer.append( chars[ rnd.nextInt(chars.length ) ] );
+		final File file = new File("/home/tobi/tmp/to_compress.html");
+		String line = null;
+
+		try ( final BufferedReader reader = new BufferedReader( new FileReader( file ) ) ) {
+			while ( ( line = reader.readLine() ) != null ) {
+				buffer.append(line);
+			}
 		}
+
+		//		final Random rnd = new Random(0xdeadbeef);
+		//		final int len = 1000 * 1024;
+		//		buffer.setLength( 0 );
+		//		for ( int i = 0 ; i < len ; i++ ) {
+		//			buffer.append( chars[ rnd.nextInt(chars.length ) ] );
+		//		}
 
 		benchmark( () -> testCompression( buffer.toString().getBytes() ) );
 	}
 
 	private static long benchmark(Runnable r) {
 
-		for ( int j = 0 ; j < 10 ; j++ )
+		for ( int j = 0 ; j < WARMUP_ROUNDS ; j++ )
 		{
 			r.run();
 		}

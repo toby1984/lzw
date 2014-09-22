@@ -1,13 +1,24 @@
 package de.codesourcery.lzw;
 
-import java.util.ArrayList;
-import java.util.List;
 
 public class PrefixTree {
 
+	private static final int INITIAL_CHILD_ARRAY_SIZE = 300;
+
+	private static final int BINARY_SEARCH_CUTOFF = 40;
+
+	private static final boolean USE_BINARY_SEARCH = false;
+
+	private byte[] suffixes;
+	private int[] values;
+	private FastIntList[] children;
+
+	private int maxNodeCount;
+	private int nodeCount;
+
 	public static void main(String[] args) {
 
-		final PrefixTree tree = new PrefixTree();
+		final PrefixTree tree = new PrefixTree(1024);
 
 		final byte[] data1 = { 1 , 2 , 3 };
 		final byte[] data2 = { 1 , 3 , 4 };
@@ -21,38 +32,81 @@ public class PrefixTree {
 		tree.put( data3 , 3 );
 
 		int value = tree.lookup( data1 ,  data1.length );
-		if ( value != 1 ) throw new IllegalArgumentException("Expected 1 but got "+value);
+		if ( value != 1 ) {
+			throw new IllegalArgumentException("Expected 1 but got "+value);
+		}
 
 		value = tree.lookup( data2 ,  data2.length );
-		if ( value != 2 ) throw new IllegalArgumentException("Expected 2 but got "+value);
+		if ( value != 2 ) {
+			throw new IllegalArgumentException("Expected 2 but got "+value);
+		}
 
 		value = tree.lookup( data3 ,  data3.length );
-		if ( value != 3 ) throw new IllegalArgumentException("Expected 3 but got "+value);
+		if ( value != 3 ) {
+			throw new IllegalArgumentException("Expected 3 but got "+value);
+		}
 
 		value = tree.lookup( data4 ,  data4.length );
-		if ( value != -1 ) throw new IllegalArgumentException("Expected -1 but got "+value);
+		if ( value != -1 ) {
+			throw new IllegalArgumentException("Expected -1 but got "+value);
+		}
 
 		value = tree.lookup( data5 ,  data5.length );
-		if ( value != -1 ) throw new IllegalArgumentException("Expected -1 but got "+value);
+		if ( value != -1 ) {
+			throw new IllegalArgumentException("Expected -1 but got "+value);
+		}
+		System.out.println("All tests passed");
 	}
 
-	protected static final class PrefixNode
+	public PrefixTree(int nodeCount)
 	{
-		protected final byte suffix;
-		protected int value = -1;
-		protected final List<PrefixNode> children = new ArrayList<>();
-
-		public PrefixNode(byte value) {
-			this.suffix = value;
+		suffixes = new byte[ nodeCount ];
+		values = new int[ nodeCount ];
+		children = new FastIntList[ nodeCount ];
+		for ( int i = 0 ; i < nodeCount ; i++ )
+		{
+			suffixes[i] = 0;
+			values[i] = -1;
+			children[i] = new FastIntList(INITIAL_CHILD_ARRAY_SIZE);
 		}
-
-		@Override
-		public String toString() {
-			return "Node( "+this.suffix+") = "+value;
-		}
+		this.maxNodeCount = nodeCount;
+		this.nodeCount = 1; // root node occupies first slot
 	}
 
-	private PrefixNode root=new PrefixNode((byte)0);
+	private void resize()
+	{
+		final int newSize = maxNodeCount * 2;
+
+		final byte[] suffixes = new byte[ newSize ];
+		System.arraycopy( this.suffixes , 0 , suffixes , 0 , maxNodeCount );
+
+		final int[] values = new int[ newSize ];
+		System.arraycopy( this.values , 0 , values , 0 , maxNodeCount );
+
+		final FastIntList[] children = new FastIntList[ newSize ];
+		System.arraycopy( this.children , 0 , children , 0 , maxNodeCount );
+
+		for ( int i = maxNodeCount ; i < newSize ; i++ )
+		{
+			suffixes[i] = 0;
+			values[i] = -1;
+			children[i] = new FastIntList(INITIAL_CHILD_ARRAY_SIZE);
+		}
+
+		this.suffixes = suffixes;
+		this.values = values;
+		this.children = children;
+		this.maxNodeCount = newSize;
+	}
+
+	public int allocNode()
+	{
+		final int result = nodeCount++;
+		if ( result >= maxNodeCount ) {
+			resize();
+		}
+		return result;
+	}
 
 	public void put(byte[] pattern,int nodeValue) {
 		put(pattern,pattern.length , nodeValue );
@@ -60,34 +114,139 @@ public class PrefixTree {
 
 	public void put(byte[] pattern,int len, int nodeValue)
 	{
+		if ( USE_BINARY_SEARCH) {
+			putWithSorting(pattern, len, nodeValue);
+		} else {
+			putWithoutSorting(pattern,len,nodeValue);
+		}
+	}
 
+	public void putWithoutSorting(byte[] pattern,int len, int nodeValue)
+	{
 		int offset = 0;
-		PrefixNode currentNode = root;
+		int currentNode = 0;
 
 		while ( offset < len)
 		{
-			PrefixNode nextNode = null;
+			int nextNode = -1;
 			final byte currentValue = pattern[offset];
-			final List<PrefixNode> children = currentNode.children;
-			final int childCount = children.size();
+			final int[] children = this.children[ currentNode ].data;
+			final int childCount = this.children[ currentNode ].length;
 			for (int i = 0; i < childCount ; i++)
 			{
-				final PrefixNode child = children.get(i);
-				if ( child.suffix == currentValue )
+				final int child = children[i];
+				if ( suffixes[child] == currentValue )
 				{
 					nextNode = child;
 					break;
 				}
 			}
-			if ( nextNode == null ) {
-				nextNode = new PrefixNode( currentValue );
-				currentNode.children.add( nextNode );
+
+			if ( nextNode == -1 )
+			{
+				nextNode = allocNode();
+				this.suffixes[nextNode] = currentValue;
+				this.children[currentNode].append( nextNode );
 			}
 			offset++;
 			currentNode = nextNode;
 		}
+		this.values[currentNode] = nodeValue;
+	}
 
-		currentNode.value = nodeValue;
+	public void putWithSorting(byte[] pattern,int len, int nodeValue)
+	{
+		int offset = 0;
+		int currentNode = 0;
+
+		while ( offset < len)
+		{
+			int nextNode = -1;
+			final byte currentValue = pattern[offset];
+			final int[] children = this.children[ currentNode ].data;
+			final int childCount = this.children[ currentNode ].length;
+			int insertionPoint = 0;
+			for (int i = 0; i < childCount ; i++)
+			{
+				final int child = children[i];
+				final int childSuffix = suffixes[child];
+
+				if ( childSuffix < currentValue ) {
+					insertionPoint++;
+				}
+				else if ( childSuffix == currentValue )
+				{
+					nextNode = child;
+					break;
+				}
+			}
+
+			if ( nextNode == -1 )
+			{
+				nextNode = allocNode();
+				this.suffixes[nextNode] = currentValue;
+				this.children[currentNode].insert( insertionPoint , nextNode );
+			}
+			offset++;
+			currentNode = nextNode;
+		}
+		this.values[currentNode] = nodeValue;
+	}
+
+	private int bruteForceGetChildIndex(FastIntList children, byte suffix)
+	{
+		final int len = children.length;
+		final int[] dataArray = children.data;
+		final byte[] suffixArray = this.suffixes;
+
+		for ( int i = 0 ; i < len ; i++ )
+		{
+			final int childIdx = dataArray[i];
+			if ( suffixArray[childIdx] == suffix ) {
+				return childIdx;
+			}
+		}
+		return -1;
+	}
+
+	private int binaryGetChildIndex(FastIntList children, byte suffix)
+	{
+		final int len = children.length;
+		final int[] dataArray = children.data;
+		final byte[] suffixArray = this.suffixes;
+
+		if ( len < BINARY_SEARCH_CUTOFF )
+		{
+			for ( int i = 0 ; i < len ; i++ )
+			{
+				final int childIdx = dataArray[i];
+				if ( suffixArray[childIdx] == suffix ) {
+					return childIdx;
+				}
+			}
+			return -1;
+		}
+
+		int start = 0;
+		int end = len-1;
+		while ( start <= end )
+		{
+			final int pivot = start + ( ( end - start ) / 2 );
+			final int childIdx = dataArray[pivot];
+			final byte currentValue = suffixArray[childIdx];
+
+			if ( currentValue < suffix )
+			{
+				start = pivot+1;// search upper half
+			}
+			else if ( currentValue > suffix )
+			{
+				end = pivot-1;  // search lower half
+			} else {
+				return childIdx;
+			}
+		}
+		return -1;
 	}
 
 	public int lookup(byte[] pattern) {
@@ -98,31 +257,36 @@ public class PrefixTree {
 	{
 		int offset = 0;
 
-		PrefixNode currentNode = root;
-outer:
+		int currentNode = 0;
 		while ( offset < len )
 		{
 			final byte currentValue = pattern[offset];
 
-			final int childCount = currentNode.children.size();
-			final List<PrefixNode> children = currentNode.children;
-
-			for (int i = 0; i < childCount; i++)
-			{
-				final PrefixNode child = children.get(i);
-				if ( child.suffix == currentValue )
-				{
-					currentNode = child;
-					offset++;
-					continue outer;
-				}
+			final FastIntList fastIntList = this.children[ currentNode ];
+			final int childIdx;
+			if ( USE_BINARY_SEARCH ) {
+				childIdx = binaryGetChildIndex( fastIntList , currentValue );
+			} else {
+				childIdx = bruteForceGetChildIndex( fastIntList , currentValue );
 			}
-			return -1;
+			if ( childIdx == -1 )
+			{
+				return -1;
+			}
+			currentNode = childIdx;
+			offset++;
 		}
-		return currentNode.value;
+		return values[currentNode];
 	}
 
-	public void clear() {
-		root=new PrefixNode((byte)0);
+	public void clear()
+	{
+		for ( int i = 0 ; i < nodeCount ; i++ )
+		{
+			suffixes[i] = 0;
+			values[i] = -1;
+			children[i].clear();
+		}
+		this.nodeCount = 1; // root node
 	}
 }
