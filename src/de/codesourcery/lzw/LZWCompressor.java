@@ -168,9 +168,6 @@ public class LZWCompressor implements ICompressor
 
 				out.write( previousIdx , BITS_PER_ENTRY );
 				codeWords++;
-
-				previousIdx = tableInsertPtr;
-
 				tableInsertPtr++;
 
 				patternBuffer[0] = current;

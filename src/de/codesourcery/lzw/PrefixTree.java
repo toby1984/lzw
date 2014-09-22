@@ -7,7 +7,6 @@ public class PrefixTree {
 
 	public static void main(String[] args) {
 
-
 		final PrefixTree tree = new PrefixTree();
 
 		final byte[] data1 = { 1 , 2 , 3 };
@@ -69,8 +68,11 @@ public class PrefixTree {
 		{
 			PrefixNode nextNode = null;
 			final byte currentValue = pattern[offset];
-			for ( final PrefixNode child : currentNode.children )
+			final List<PrefixNode> children = currentNode.children;
+			final int childCount = children.size();
+			for (int i = 0; i < childCount ; i++)
 			{
+				final PrefixNode child = children.get(i);
 				if ( child.suffix == currentValue )
 				{
 					nextNode = child;
@@ -101,8 +103,13 @@ outer:
 		while ( offset < len )
 		{
 			final byte currentValue = pattern[offset];
-			for ( final PrefixNode child : currentNode.children )
+
+			final int childCount = currentNode.children.size();
+			final List<PrefixNode> children = currentNode.children;
+
+			for (int i = 0; i < childCount; i++)
 			{
+				final PrefixNode child = children.get(i);
 				if ( child.suffix == currentValue )
 				{
 					currentNode = child;
