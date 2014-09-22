@@ -77,34 +77,57 @@ public class LZWCompressor implements ICompressor
 		final StringBuilder buffer = new StringBuilder();
 		final Random rnd = new Random(0xdeadbeef);
 
+		// final int len = rnd.nextInt( 100* 1024 );
+		final int len = 1000 * 1024;
+		buffer.setLength( 0 );
+		for ( int i = 0 ; i < len ; i++ ) {
+			buffer.append( chars[ rnd.nextInt(chars.length ) ] );
+		}
+
+		benchmark( () -> testCompression( buffer.toString().getBytes() ) );
+	}
+
+	private static long benchmark(Runnable r) {
+
 		for ( int j = 0 ; j < 10 ; j++ )
 		{
-			final int len = rnd.nextInt( 100* 1024 );
-			buffer.setLength( 0 );
-			for ( int i = 0 ; i < len ; i++ ) {
-				buffer.append( chars[ rnd.nextInt(chars.length ) ] );
-			}
-			testCompression( buffer.toString().getBytes() );
+			r.run();
 		}
+		return time( r );
+	}
+	private static long time(Runnable r) {
+		final long t = -System.currentTimeMillis();
+		r.run();
+		return t + System.currentTimeMillis();
 	}
 
 	private static void testCompression(final byte[] test)
 	{
 		final BitStream out = new BitStream(1024);
 
+		long compressionTime = -System.currentTimeMillis();
 		final int numberOfCodeWords = new LZWCompressor().compress( test , out );
+		compressionTime += System.currentTimeMillis();
+
+		float mbPerSecond = (test.length / 1024 / 1024f) / (compressionTime/1000f);
 
 		final float inputBits = test.length*8;
 		final float outputBits = numberOfCodeWords*12;
 		final float ratio = 100.0f - 100.0f* ( outputBits / inputBits );
-		System.out.println("Compressed: "+numberOfCodeWords+" 12-bit words = "+(numberOfCodeWords*12)+" bits (input: "+(test.length*8+" bits), compression: "+ratio+" %"));
+		System.out.println("Compressed: "+numberOfCodeWords+" 12-bit words = "+(numberOfCodeWords*12)+" bits (input: "+(test.length*8+" bits), compression: "+ratio+" % , "+mbPerSecond+" MB/s"));
 		out.reset();
 
+		long decompressionTime = -System.currentTimeMillis();
 		final byte[] decompressed = new LZWCompressor().decompress( out , numberOfCodeWords );
+		decompressionTime += System.currentTimeMillis();
+
+		mbPerSecond = (test.length / 1024 / 1024f) / (decompressionTime/1000f);
+		System.out.println("Decompression: "+mbPerSecond+" MB/s");
 
 		if ( decompressed.length != test.length ) {
 			throw new RuntimeException("Length mismatch, expected "+test.length+" bytes but got "+decompressed);
 		}
+
 		for ( int i = 0 ; i < test.length ; i++ ) {
 			if ( test[i] != decompressed[i] ) {
 				throw new RuntimeException("Mismatch at offset "+i+" , expected "+test[i]+" bytes but got "+decompressed[i]);
@@ -120,7 +143,7 @@ public class LZWCompressor implements ICompressor
 			return codeWords;
 		}
 
-		initDictionary();
+		clearDictionary();
 
 		final byte[] patternBuffer = new byte[4096];
 		int patternPtr = 0;
@@ -139,7 +162,7 @@ public class LZWCompressor implements ICompressor
 			if ( existingIndex == -1 )
 			{
 				if ( tableInsertPtr == table.length ) {
-					initDictionary();
+					clearDictionary();
 					tableInsertPtr = 256;
 				}
 				table[tableInsertPtr] = new TableEntry( patternBuffer,patternPtr );
@@ -160,22 +183,13 @@ public class LZWCompressor implements ICompressor
 				previousIdx = existingIndex;
 			}
 		}
-		final int existingIndex = findTableEntry(patternBuffer,patternPtr);
-		if ( existingIndex != -1 ) {
-			out.write( existingIndex , 12 );
-			codeWords++;
-		} else {
-			for ( int i = 0 ; i < patternPtr ; i++ )
-			{
-				int value = patternBuffer[i];
-				value = value & 0xFF;
-				out.write( value , 12 );
-			}
-		}
+		out.write( previousIdx , 12 );
+		codeWords++;
+
 		return codeWords;
 	}
 
-	private void initDictionary() {
+	private void clearDictionary() {
 		for ( int i = 0 ; i < table.length ; i++ )
 		{
 			if ( i <= 255 ) {
@@ -195,7 +209,7 @@ public class LZWCompressor implements ICompressor
 			return out.getBytes();
 		}
 
-		initDictionary();
+		clearDictionary();
 
 		int last = in.readInt(12);
 
@@ -213,7 +227,7 @@ public class LZWCompressor implements ICompressor
 				final TableEntry newEntry = table[ last ].newEntry( table[ next ].firstByte() );
 
 				if ( tablePtr == table.length ) {
-					initDictionary();
+					clearDictionary();
 					tablePtr = 256;
 				}
 				table[ tablePtr++ ] = newEntry;
@@ -222,7 +236,7 @@ public class LZWCompressor implements ICompressor
 			{
 				final TableEntry newEntry = table[ last ].newEntry( table[ last ].firstByte() );
 				if ( tablePtr == table.length ) {
-					initDictionary();
+					clearDictionary();
 					tablePtr = 256;
 				}
 				table[ tablePtr++ ] = newEntry;
