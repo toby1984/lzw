@@ -13,19 +13,115 @@ public class BitStream
 	private int readPtr;
 	private int readBit=63;
 
+	private int sizeInBits;
+
+	public BitStream(byte[] data, int bitsInArray)
+	{
+		final int bytesInArray = (int) Math.ceil( bitsInArray / 8f );
+
+		this.buffer = new long[ (int) Math.ceil( bytesInArray / 8f ) ];
+		this.sizeInBits = bitsInArray;
+
+		int byteIndex = 0;
+		int longIndex = 0;
+
+		long currentValue = 0;
+		int byteInLong = 3;
+
+		for ( int i = 0 ; i < bytesInArray ; i++ )
+		{
+			currentValue = currentValue << 8;
+			currentValue |= (data[byteIndex++] & 0xffL);
+			byteInLong--;
+			if ( byteInLong == 0 ) {
+				buffer[ longIndex++ ] = currentValue;
+			}
+		}
+		buffer[ longIndex ] = currentValue;
+
+		this.sizeInBits = bitsInArray;
+		this.writePtr = longIndex;
+		this.writeBit = 63 - ( bitsInArray % 63 );
+	}
+
+	public byte[] getBytes(int numberOfBits)
+	{
+		if ( numberOfBits < 0 ) {
+			throw new IllegalArgumentException("numberOfBits must be >= 0");
+		}
+		if ( numberOfBits == 0 ) {
+			return new byte[0];
+		}
+		if ( numberOfBits > sizeInBits ) {
+			throw new IllegalArgumentException("Cannot read "+numberOfBits+" bits from buffer that contains only "+sizeInBits+" bits.");
+		}
+		final int sizeInBytes = (int) Math.ceil( numberOfBits / 8f );
+		final byte[] result = new byte[ sizeInBytes  ];
+
+		int byteIndex = 0;
+		int longIndex = 0;
+
+		int bitsRemaining = numberOfBits;
+		System.out.println("Size in bits: "+bitsRemaining);
+		System.out.println("Size in bytes: "+(bitsRemaining/8));
+		System.out.println("Number of longs: "+(bitsRemaining/8)/8);
+		System.out.println("Size in KBs: "+(bitsRemaining/8/1024));
+
+		int toShift = 7*8;
+
+		int byteInLong = 0;
+
+		long currentValue = buffer[ longIndex ];
+		while ( bitsRemaining >= 8 )
+		{
+			result[ byteIndex++ ] = (byte) ( (currentValue >>> toShift) & 0xFF);
+			bitsRemaining -= 8;
+
+			if ( byteInLong == 7 )
+			{
+				toShift = 7*8;
+				byteInLong = 0;
+				longIndex++;
+				if ( bitsRemaining > 0 ) {
+					currentValue = buffer[longIndex];
+				}
+			} else {
+				byteInLong++;
+				toShift -= 8;
+			}
+		}
+
+		if ( bitsRemaining > 0 )
+		{
+			final long mask = (1 << bitsRemaining+1)-1;
+			result[ byteIndex ] = (byte) ( ( buffer[longIndex] >> toShift) & mask );
+		}
+		return result;
+	}
+	public byte[] getBytes()
+	{
+		return getBytes( sizeInBits );
+	}
+
 	public BitStream(int sizeInBytes)
 	{
 		if ( sizeInBytes < 1 ) {
 			throw new RuntimeException("Internal error,size must be >= 1");
 		}
-		final int sizeInWords = (int) Math.ceil( sizeInBytes / 8 );
-		this.buffer = new long[ sizeInWords ];
+		final int sizeInLongs = (int) Math.ceil( sizeInBytes / 8f );
+		System.out.println("Allocating for "+sizeInBytes+" bytes => "+sizeInLongs+" long words");
+		this.buffer = new long[ sizeInLongs ];
 	}
 
-	public static void main(String[] args) throws EOFException {
+	public int getSizeInBits() {
+		return sizeInBits;
+	}
 
-		final int BUFFER_SIZE = 1024;
-		final int KB_TO_WRITE = 2048;
+	private static final int BUFFER_SIZE = 1024;
+	private static final int KB_TO_WRITE = 2048;
+	private static final int WARMUP_ROUNDS = 30;
+
+	public static void main(String[] args) throws EOFException {
 
 		final byte[] data = new byte[BUFFER_SIZE];
 
@@ -34,29 +130,31 @@ public class BitStream
 
 		final BitStream buffer = new BitStream( (KB_TO_WRITE+1)*1024 );
 
-
 		long t = benchmark( () ->
 		{
-			buffer.reset();
 			for ( int i = 0 ; i < KB_TO_WRITE; i++ )
 			{
 				for ( final long b : data )
 				{
-					buffer.output( b & 0xffL , 8 );
+					buffer.write( b & 0xffL , 8 );
 				}
 			}
 		});
+
 		float dataPerSecond = (KB_TO_WRITE/1024f) / (t/1000f);
 		System.out.println("\nWrote "+KB_TO_WRITE+" in "+t+" ms ("+dataPerSecond+" MB/s)");
 
 		/*
 		 * Sanity check
 		 */
-		buffer.reset();
-		for ( int i = 0 ; i < data.length ; i++ )
+		final byte[] bufferContents = buffer.getBytes(1024*8);
+		if ( bufferContents.length != data.length ) {
+			throw new RuntimeException("Length mismatch , expected: "+data.length+" , actual: "+bufferContents.length);
+		}
+		for ( int i = 0 ; i < bufferContents.length ; i++ )
 		{
-			final long expected = data[i] & 0xffL;
-			final long actual = buffer.read( 8 );
+			final byte actual   = bufferContents[i];
+			final byte expected = data[i];
 			if ( expected != actual ) {
 				throw new RuntimeException("Read error at offset "+i+" , expected 0b"+Long.toBinaryString( expected )+" , got 0b"+Long.toBinaryString( actual ) );
 			}
@@ -70,7 +168,7 @@ public class BitStream
 				buffer.reset();
 				for ( int i = 0 ; i < BUFFER_SIZE ; i++ )
 				{
-					sum += buffer.read( 8 );
+					sum += buffer.readLong( 8 );
 				}
 			}
 			System.out.print("sum: "+sum);
@@ -81,9 +179,9 @@ public class BitStream
 
 	protected  static final long benchmark(Runnable r)
 	{
-		for ( int warmup = 40 ; warmup > 0 ; warmup --)
+		for ( int warmup = WARMUP_ROUNDS ; warmup > 0 ; warmup --)
 		{
-			System.out.println("Warumup: "+time(r)+" ms");
+			System.out.println("WARMUP - "+time(r)+" ms");
 		}
 		return time( r );
 	}
@@ -96,9 +194,13 @@ public class BitStream
 		return time;
 	}
 
-	public void output(final long value,final int numberOfBits)
+	public void write(final long value,final int numberOfBits)
 	{
 		long readMask = 1L << (numberOfBits-1);
+
+		int writeBit = this.writeBit;
+		int writePtr = this.writePtr;
+
 		long setMask = (1L << writeBit);
 
 		long currentValue = buffer[ writePtr ];
@@ -108,8 +210,8 @@ public class BitStream
 				currentValue |= setMask;
 			}
 			readMask = readMask >>> 1;
-			writeBit--;
-			if ( writeBit < 0 )
+
+			if ( writeBit == 0 )
 			{
 				buffer[ writePtr ] = currentValue;
 				writePtr++;
@@ -120,10 +222,14 @@ public class BitStream
 				writeBit = 63;
 				setMask = 1L << 63;
 			} else {
+				writeBit--;
 				setMask  =  setMask >>> 1;
 			}
 		}
+		this.writePtr = writePtr;
+		this.writeBit = writeBit;
 		buffer[writePtr] = currentValue;
+		sizeInBits += numberOfBits;
 	}
 
 	public void reset() {
@@ -131,31 +237,70 @@ public class BitStream
 		this.readPtr = 0;
 		this.writeBit = 63;
 		this.writePtr = 0;
+		this.sizeInBits = 0;
 	}
 
-	public long read(final int numberOfBits)
+	public long readLong(final int numberOfBits)
 	{
 		long result = 0;
+
+		int readBit = this.readBit;
+		int readPtr = this.readPtr;
+
 		long readMask = 1L << readBit;
+		long currentValue = buffer[ readPtr ];
+
 		for ( int i = 0 ; i < numberOfBits ; i++ )
 		{
 			result = result << 1;
-			if ( ( buffer[ readPtr ] & readMask ) != 0 ) {
+			if ( ( currentValue & readMask ) != 0 ) {
 				result |= 1;
 			}
-			readBit--;
-			if ( readBit < 0 )
+			if ( readBit == 0 )
 			{
 				readPtr++;
-				if ( writePtr == buffer.length ) {
-					throw new RuntimeException("Trying to read beyond end of buffer ?");
-				}
+				currentValue = buffer[ readPtr ];
 				readBit = 63;
 				readMask = 1L << 63;
 			} else {
+				readBit--;
 				readMask = readMask >>> 1;
 			}
 		}
+		this.readBit = readBit;
+		this.readPtr = readPtr;
+		return result;
+	}
+
+	public int readInt(final int numberOfBits)
+	{
+		int result = 0;
+
+		int readBit = this.readBit;
+		int readPtr = this.readPtr;
+
+		long readMask = 1L << readBit;
+		long currentValue = buffer[ readPtr ];
+
+		for ( int i = 0 ; i < numberOfBits ; i++ )
+		{
+			result = result << 1;
+			if ( ( currentValue & readMask ) != 0 ) {
+				result |= 1;
+			}
+			if ( readBit == 0 )
+			{
+				readPtr++;
+				currentValue = buffer[ readPtr ];
+				readBit = 63;
+				readMask = 1L << 63;
+			} else {
+				readBit--;
+				readMask = readMask >>> 1;
+			}
+		}
+		this.readBit = readBit;
+		this.readPtr = readPtr;
 		return result;
 	}
 
