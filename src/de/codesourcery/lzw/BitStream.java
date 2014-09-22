@@ -25,7 +25,7 @@ public class BitStream
 	public static void main(String[] args) throws EOFException {
 
 		final int BUFFER_SIZE = 1024;
-		final int KB_TO_WRITE = 1;
+		final int KB_TO_WRITE = 2048;
 
 		final byte[] data = new byte[BUFFER_SIZE];
 
@@ -34,12 +34,10 @@ public class BitStream
 
 		final BitStream buffer = new BitStream( (KB_TO_WRITE+1)*1024 );
 
-		int warmup = 30;
-		long time = 0;
-		while ( warmup-- > 0 ) {
-			buffer.reset();
-			time = -System.currentTimeMillis();
 
+		long t = benchmark( () ->
+		{
+			buffer.reset();
 			for ( int i = 0 ; i < KB_TO_WRITE; i++ )
 			{
 				for ( final long b : data )
@@ -47,43 +45,85 @@ public class BitStream
 					buffer.output( b & 0xffL , 8 );
 				}
 			}
-			time += System.currentTimeMillis();
-			final float dataPerSecond = (KB_TO_WRITE/1024f) / (time/1000f);
-			System.out.println("Wrote "+KB_TO_WRITE+" in "+time+" ms ("+dataPerSecond+" MB/s)");
-		}
+		});
+		float dataPerSecond = (KB_TO_WRITE/1024f) / (t/1000f);
+		System.out.println("\nWrote "+KB_TO_WRITE+" in "+t+" ms ("+dataPerSecond+" MB/s)");
 
-		for ( int i = 0 ; i < data.length ; i++ ) {
+		/*
+		 * Sanity check
+		 */
+		buffer.reset();
+		for ( int i = 0 ; i < data.length ; i++ )
+		{
 			final long expected = data[i] & 0xffL;
 			final long actual = buffer.read( 8 );
 			if ( expected != actual ) {
 				throw new RuntimeException("Read error at offset "+i+" , expected 0b"+Long.toBinaryString( expected )+" , got 0b"+Long.toBinaryString( actual ) );
 			}
 		}
+
+		t = benchmark( () ->
+		{
+			long sum = 0;
+			for ( int j = 0 ; j < KB_TO_WRITE ; j++)
+			{
+				buffer.reset();
+				for ( int i = 0 ; i < BUFFER_SIZE ; i++ )
+				{
+					sum += buffer.read( 8 );
+				}
+			}
+			System.out.print("sum: "+sum);
+		});
+		dataPerSecond = (KB_TO_WRITE/1024f) / (t/1000f);
+		System.out.println("\n\nRead "+KB_TO_WRITE+" in "+t+" ms ("+dataPerSecond+" MB/s)");
+	}
+
+	protected  static final long benchmark(Runnable r)
+	{
+		for ( int warmup = 40 ; warmup > 0 ; warmup --)
+		{
+			System.out.println("Warumup: "+time(r)+" ms");
+		}
+		return time( r );
+	}
+
+	protected static final long time(Runnable block)
+	{
+		long time = -System.currentTimeMillis();
+		block.run();
+		time += System.currentTimeMillis();
+		return time;
 	}
 
 	public void output(final long value,final int numberOfBits)
 	{
 		long readMask = 1L << (numberOfBits-1);
 		long setMask = (1L << writeBit);
+
+		long currentValue = buffer[ writePtr ];
 		for ( int i = 0 ; i < numberOfBits ; i++ )
 		{
 			if ( (value & readMask ) != 0 ) {
-				buffer[ writePtr ] |= setMask;
+				currentValue |= setMask;
 			}
 			readMask = readMask >>> 1;
 			writeBit--;
 			if ( writeBit < 0 )
 			{
+				buffer[ writePtr ] = currentValue;
 				writePtr++;
 				if ( writePtr == buffer.length ) {
 					resizeBuffer();
 				}
+				currentValue = 0;
 				writeBit = 63;
 				setMask = 1L << 63;
 			} else {
 				setMask  =  setMask >>> 1;
 			}
 		}
+		buffer[writePtr] = currentValue;
 	}
 
 	public void reset() {
@@ -93,7 +133,7 @@ public class BitStream
 		this.writePtr = 0;
 	}
 
-	public long read(final int numberOfBits) throws EOFException
+	public long read(final int numberOfBits)
 	{
 		long result = 0;
 		long readMask = 1L << readBit;
@@ -108,7 +148,7 @@ public class BitStream
 			{
 				readPtr++;
 				if ( writePtr == buffer.length ) {
-					throw new EOFException("Trying to read beyond end of buffer ?");
+					throw new RuntimeException("Trying to read beyond end of buffer ?");
 				}
 				readBit = 63;
 				readMask = 1L << 63;
