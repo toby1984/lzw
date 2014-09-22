@@ -58,16 +58,11 @@ public class LZWCompressor implements ICompressor
 
 	private TableEntry[] table = new TableEntry[4096];
 
+	private final PrefixTree tree = new PrefixTree();
+
 	private int findTableEntry(byte[] patternBuffer,int patternPtr)
 	{
-		final int len = table.length;
-		for ( int i = 0 ; i < len ; i++ ) {
-			final TableEntry current = table[i];
-			if ( current != null && current.matches( patternBuffer ,  patternPtr ) ) {
-				return i;
-			}
-		}
-		return -1;
+		return tree.lookup( patternBuffer , patternPtr );
 	}
 
 	public static void main(String[] args)
@@ -83,7 +78,6 @@ public class LZWCompressor implements ICompressor
 		for ( int i = 0 ; i < len ; i++ ) {
 			buffer.append( chars[ rnd.nextInt(chars.length ) ] );
 		}
-
 		benchmark( () -> testCompression( buffer.toString().getBytes() ) );
 	}
 
@@ -165,7 +159,9 @@ public class LZWCompressor implements ICompressor
 					clearDictionary();
 					tableInsertPtr = 256;
 				}
+
 				table[tableInsertPtr] = new TableEntry( patternBuffer,patternPtr );
+				tree.put( patternBuffer , patternPtr , tableInsertPtr );
 
 				out.write( previousIdx , 12 );
 				codeWords++;
@@ -189,14 +185,15 @@ public class LZWCompressor implements ICompressor
 		return codeWords;
 	}
 
-	private void clearDictionary() {
-		for ( int i = 0 ; i < table.length ; i++ )
+	private void clearDictionary()
+	{
+		table = new TableEntry[4096];
+		tree.clear();
+		for ( int i = 0 ; i < 256; i++ )
 		{
-			if ( i <= 255 ) {
-				table[i] = new TableEntry( new byte[] { (byte) i } , 1 );
-			} else {
-				table[i] = null;
-			}
+			final byte[] array = new byte[] { (byte) i };
+			table[i] = new TableEntry( array , 1 );
+			tree.put( array , i );
 		}
 	}
 

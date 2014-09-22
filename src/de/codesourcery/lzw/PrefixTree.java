@@ -65,7 +65,7 @@ public class PrefixTree {
 			}
 			if ( nextNode == null ) {
 				nextNode = new PrefixNode( currentValue );
-				System.out.println("Adding "+nextNode+" to "+this);
+//				System.out.println("Adding "+nextNode+" to "+this);
 				children.add( nextNode );
 			}
 			return nextNode.put( pattern , offset+1 , len );
