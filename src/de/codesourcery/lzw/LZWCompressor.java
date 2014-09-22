@@ -78,6 +78,7 @@ public class LZWCompressor implements ICompressor
 		for ( int i = 0 ; i < len ; i++ ) {
 			buffer.append( chars[ rnd.nextInt(chars.length ) ] );
 		}
+
 		benchmark( () -> testCompression( buffer.toString().getBytes() ) );
 	}
 
