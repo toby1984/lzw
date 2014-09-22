@@ -5,6 +5,8 @@ import java.util.Random;
 
 public class LZWCompressor implements ICompressor
 {
+	protected static final int BITS_PER_ENTRY = 12;
+
 	protected static final class TableEntry
 	{
 		public final byte[] pattern;
@@ -56,7 +58,7 @@ public class LZWCompressor implements ICompressor
 		}
 	}
 
-	private TableEntry[] table = new TableEntry[4096];
+	private TableEntry[] table = new TableEntry[ 1 << BITS_PER_ENTRY ];
 
 	private final PrefixTree tree = new PrefixTree();
 
@@ -107,9 +109,9 @@ public class LZWCompressor implements ICompressor
 		float mbPerSecond = (test.length / 1024 / 1024f) / (compressionTime/1000f);
 
 		final float inputBits = test.length*8;
-		final float outputBits = numberOfCodeWords*12;
+		final float outputBits = numberOfCodeWords*BITS_PER_ENTRY;
 		final float ratio = 100.0f - 100.0f* ( outputBits / inputBits );
-		System.out.println("Compressed: "+numberOfCodeWords+" 12-bit words = "+(numberOfCodeWords*12)+" bits (input: "+(test.length*8+" bits), compression: "+ratio+" % , "+mbPerSecond+" MB/s"));
+		System.out.println("Compressed: "+numberOfCodeWords+" "+BITS_PER_ENTRY+"-bit words = "+(numberOfCodeWords*BITS_PER_ENTRY)+" bits (input: "+(test.length*8+" bits), compression: "+ratio+" % , "+mbPerSecond+" MB/s"));
 		out.reset();
 
 		long decompressionTime = -System.currentTimeMillis();
@@ -164,7 +166,7 @@ public class LZWCompressor implements ICompressor
 				table[tableInsertPtr] = new TableEntry( patternBuffer,patternPtr );
 				tree.put( patternBuffer , patternPtr , tableInsertPtr );
 
-				out.write( previousIdx , 12 );
+				out.write( previousIdx , BITS_PER_ENTRY );
 				codeWords++;
 
 				previousIdx = tableInsertPtr;
@@ -180,7 +182,7 @@ public class LZWCompressor implements ICompressor
 				previousIdx = existingIndex;
 			}
 		}
-		out.write( previousIdx , 12 );
+		out.write( previousIdx , BITS_PER_ENTRY );
 		codeWords++;
 
 		return codeWords;
@@ -188,7 +190,7 @@ public class LZWCompressor implements ICompressor
 
 	private void clearDictionary()
 	{
-		table = new TableEntry[4096];
+		table = new TableEntry[ 1 << BITS_PER_ENTRY ];
 		tree.clear();
 		for ( int i = 0 ; i < 256; i++ )
 		{
@@ -201,7 +203,7 @@ public class LZWCompressor implements ICompressor
 	@Override
 	public byte[] decompress(BitStream in,int numberOfCodeWords)
 	{
-		final BitStream out = new BitStream( 1 + (numberOfCodeWords*12) / 8 );
+		final BitStream out = new BitStream( 1 + (numberOfCodeWords*BITS_PER_ENTRY) / 8 );
 
 		if ( numberOfCodeWords == 0 ) {
 			return out.getBytes();
@@ -209,7 +211,7 @@ public class LZWCompressor implements ICompressor
 
 		clearDictionary();
 
-		int last = in.readInt(12);
+		int last = in.readInt(BITS_PER_ENTRY);
 
 		out.write( last , 8 );
 
@@ -217,7 +219,7 @@ public class LZWCompressor implements ICompressor
 
 		for ( int index = 0 ; index < numberOfCodeWords-1 ; index++ )
 		{
-			final int next = in.readInt( 12 );
+			final int next = in.readInt( BITS_PER_ENTRY );
 
 			final TableEntry existing = table[ next ];
 			if ( existing != null )

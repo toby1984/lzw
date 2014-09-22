@@ -37,52 +37,14 @@ public class PrefixTree {
 		if ( value != -1 ) throw new IllegalArgumentException("Expected -1 but got "+value);
 	}
 
-	public static class PrefixNode
+	protected static final class PrefixNode
 	{
-		public byte suffix;
-		public int value = -1;
-		public final List<PrefixNode> children = new ArrayList<>();
+		protected final byte suffix;
+		protected int value = -1;
+		protected final List<PrefixNode> children = new ArrayList<>();
 
 		public PrefixNode(byte value) {
 			this.suffix = value;
-		}
-
-		public PrefixNode put(byte[] pattern,int offset,int len)
-		{
-			if ( offset >= len ) {
-				return this;
-			}
-
-			PrefixNode nextNode = null;
-
-			final byte currentValue = pattern[offset];
-			for ( final PrefixNode child : children ) {
-				if ( child.suffix == currentValue )
-				{
-					nextNode = child;
-					break;
-				}
-			}
-			if ( nextNode == null ) {
-				nextNode = new PrefixNode( currentValue );
-//				System.out.println("Adding "+nextNode+" to "+this);
-				children.add( nextNode );
-			}
-			return nextNode.put( pattern , offset+1 , len );
-		}
-
-		public PrefixNode lookup(byte[] pattern,int offset,int len)
-		{
-			if ( offset >= len ) {
-				return this;
-			}
-			final byte currentValue = pattern[offset];
-			for ( final PrefixNode child : children ) {
-				if ( child.suffix == currentValue ) {
-					return child.lookup( pattern  , offset + 1 , len );
-				}
-			}
-			return null;
 		}
 
 		@Override
@@ -99,16 +61,58 @@ public class PrefixTree {
 
 	public void put(byte[] pattern,int len, int nodeValue)
 	{
-		root.put( pattern, 0 , len ).value = nodeValue;
+
+		int offset = 0;
+		PrefixNode currentNode = root;
+
+		while ( offset < len)
+		{
+			PrefixNode nextNode = null;
+			final byte currentValue = pattern[offset];
+			for ( final PrefixNode child : currentNode.children )
+			{
+				if ( child.suffix == currentValue )
+				{
+					nextNode = child;
+					break;
+				}
+			}
+			if ( nextNode == null ) {
+				nextNode = new PrefixNode( currentValue );
+				currentNode.children.add( nextNode );
+			}
+			offset++;
+			currentNode = nextNode;
+		}
+
+		currentNode.value = nodeValue;
 	}
 
 	public int lookup(byte[] pattern) {
 		return lookup(pattern,pattern.length);
 	}
 
-	public int lookup(byte[] pattern,int len) {
-		final PrefixNode node = root.lookup( pattern, 0 , len );
-		return node == null ? -1 : node.value;
+	public int lookup(byte[] pattern,int len)
+	{
+		int offset = 0;
+
+		PrefixNode currentNode = root;
+outer:
+		while ( offset < len )
+		{
+			final byte currentValue = pattern[offset];
+			for ( final PrefixNode child : currentNode.children )
+			{
+				if ( child.suffix == currentValue )
+				{
+					currentNode = child;
+					offset++;
+					continue outer;
+				}
+			}
+			return -1;
+		}
+		return currentNode.value;
 	}
 
 	public void clear() {
